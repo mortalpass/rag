@@ -1,478 +1,276 @@
-# 从 unstructured 导入 markdown 解析器
-import json
+from markdown_it import MarkdownIt
+from markdown_it.token import Token
 
-from unstructured.partition.md import partition_md
-
-# 导入 unstructured 中的 element 类型
-from unstructured.documents.elements import (
-
-    # 标题
-    Title,
-
-    # 普通正文
-    NarrativeText,
-
-    # 列表项
-    ListItem,
-
-    # 表格
-    Table,
-
-    # 代码块
-    CodeSnippet,
-)
-
-# 导入类型注解
 from typing import List, Dict
-
-# 导入 Path 用于处理文件路径
 from pathlib import Path
-
-# 导入 uuid 用于生成 chunk 唯一ID
 import uuid
 
 
-# 定义 MarkdownChunker 类
-class MarkdownChunker:
-    """
-    工业级 Markdown Chunker
-    """
+class MarkdownASTChunker:
 
-    # 初始化函数
     def __init__(
-
-            self,
-
-            # chunk 最大长度
-            max_chunk_size: int = 1200,
-
-            # chunk overlap 重叠长度
-            overlap: int = 150,
+        self,
+        max_chunk_size: int = 1500,
+        overlap: int = 200,
     ):
-
-        # 保存最大chunk大小
         self.max_chunk_size = max_chunk_size
-
-        # 保存 overlap 大小
         self.overlap = overlap
 
-    # 加载 markdown 文件
-    def load_markdown(self, file_path: str):
+        self.md = MarkdownIt("commonmark", {
+            "html": False,
+            "linkify": True,
+            "typographer": False,
+        })
 
-        # 使用 unstructured 解析 markdown
-        elements = partition_md(filename=file_path)
+    def parse_markdown(
+        self,
+        markdown_text: str,
+    ) -> List[Token]:
 
-        # 返回解析后的 element 列表
-        return elements
+        tokens = self.md.parse(markdown_text)
 
-    # 创建 chunk
-    def create_chunk(
+        return tokens
 
-            self,
-
-            # 文本列表
-            text_list,
-
-            # 标题路径
-            title_path,
-
-            # 内容类型
-            content_type,
-
-            # 来源文件
-            source,
+    def split_large_text(
+        self,
+        text: str,
     ):
 
-        # 把 text_list 合并成完整文本
-        text = "\n".join(text_list).strip()
+        if len(text) <= self.max_chunk_size:
+            return [text]
 
-        # 返回 chunk 字典
+        chunks = []
+
+        start = 0
+
+        while start < len(text):
+
+            end = start + self.max_chunk_size
+
+            chunk = text[start:end]
+
+            chunks.append(chunk)
+
+            start = end - self.overlap
+
+        return chunks
+
+    def create_chunk(
+        self,
+        text: str,
+        title_path: List[str],
+        content_type: str,
+        source: str,
+    ):
+
         return {
-
-            # chunk 唯一ID
             "chunk_id": str(uuid.uuid4()),
-
-            # 来源文件名
             "source": source,
-
-            # 标题路径
             "title_path": title_path.copy(),
-
-            # 内容类型
             "content_type": content_type,
-
-            # chunk 文本
-            "text": text,
-
-            # 字符数
+            "text": text.strip(),
             "char_count": len(text),
         }
 
-    # 长文本切分函数
-    def split_large_text(self, text: str):
+    def build_chunks(
+        self,
+        tokens: List[Token],
+        source: str,
+    ):
 
-        """
-        长文本语义切分
-        """
-
-        # 如果文本长度没有超过限制
-        if len(text) <= self.max_chunk_size:
-            # 直接返回
-            return [text]
-
-        # 存储切分结果
         chunks = []
 
-        # 起始位置
-        start = 0
-
-        # 循环切分
-        while start < len(text):
-            # 当前chunk结束位置
-            end = start + self.max_chunk_size
-
-            # 截取chunk
-            chunk = text[start:end]
-
-            # 保存chunk
-            chunks.append(chunk)
-
-            # 更新start
-            # 使用 overlap 实现上下文重叠
-            start = end - self.overlap
-
-        # 返回切分后的 chunks
-        return chunks
-
-    # 主 chunk 切分逻辑
-    def chunk_elements(
-
-            self,
-
-            # unstructured elements
-            elements,
-
-            # 文件来源
-            source,
-    ) -> List[Dict]:
-
-        # 最终 chunk 结果
-        chunks = []
-
-        # 标题栈
-        # 用于保存层级标题路径
         title_stack = []
 
-        # 当前 chunk 文本列表
-        current_texts = []
-
-        # 当前 chunk 大小
+        current_text = []
         current_size = 0
 
-        # flush函数
-        # 用于保存当前chunk
-        def flush_current_chunk():
+        i = 0
 
-            # 使用外层变量
-            nonlocal current_texts
+        def flush_text_chunk():
 
-            # 使用外层变量
+            nonlocal current_text
             nonlocal current_size
 
-            # 如果当前没有内容
-            if not current_texts:
-                # 直接返回
+            if not current_text:
                 return
 
-            # 创建chunk
-            chunk = self.create_chunk(
+            text = "\n".join(current_text).strip()
 
-                # 当前文本
-                text_list=current_texts,
-
-                # 当前标题路径
-                title_path=title_stack,
-
-                # 内容类型
-                content_type="text",
-
-                # 来源文件
-                source=source,
-            )
-
-            # 保存chunk
-            chunks.append(chunk)
-
-            # 清空当前文本
-            current_texts = []
-
-            # 重置大小
-            current_size = 0
-
-        # 遍历所有 element
-        for el in elements:
-
-            # 获取文本并去除空格
-            text = el.text.strip()
-
-            # 空文本跳过
             if not text:
-                continue
+                return
 
-            # ====================
-            # TITLE
-            # ====================
+            split_chunks = self.split_large_text(text)
 
-            # 如果是标题
-            if isinstance(el, Title):
-                # 先保存旧chunk
-                flush_current_chunk()
+            for split_text in split_chunks:
 
-                # 简化版标题层级
-                # 实际工业级需要结合 metadata.level
-                title_stack.append(text)
-
-                # 标题本身不进入chunk
-                continue
-
-            # ====================
-            # TABLE
-            # ====================
-
-            # 如果是表格
-            if isinstance(el, Table):
-                # 先保存旧chunk
-                flush_current_chunk()
-
-                # 创建table chunk
-                table_chunk = self.create_chunk(
-
-                    # 表格作为单独chunk
-                    text_list=[text],
-
-                    # 当前标题路径
-                    title_path=title_stack,
-
-                    # 内容类型
-                    content_type="table",
-
-                    # 来源文件
-                    source=source,
+                chunks.append(
+                    self.create_chunk(
+                        text=split_text,
+                        title_path=title_stack,
+                        content_type="text",
+                        source=source,
+                    )
                 )
 
-                # 保存table chunk
-                chunks.append(table_chunk)
+            current_text = []
+            current_size = 0
 
-                # 继续下一轮
+        while i < len(tokens):
+
+            token = tokens[i]
+
+            # ==================================
+            # Heading
+            # ==================================
+            if token.type == "heading_open":
+
+                flush_text_chunk()
+
+                level = int(token.tag[1])
+
+                inline_token = tokens[i + 1]
+
+                title = inline_token.content.strip()
+
+                # 修正标题层级
+                title_stack[:] = title_stack[:level - 1]
+
+                title_stack.append(title)
+
+                i += 3
                 continue
 
-            # ====================
-            # CODE
-            # ====================
+            # ==================================
+            # Fence Code Block
+            # ==================================
+            if token.type == "fence":
 
-            # 如果是代码块
-            if isinstance(el, CodeSnippet):
+                flush_text_chunk()
 
-                # 先flush当前普通文本
-                flush_current_chunk()
+                code_text = token.content.strip()
 
-                # 对超长代码做切分
-                code_chunks = self.split_large_text(text)
+                code_chunks = self.split_large_text(code_text)
 
-                # 遍历代码chunk
                 for code in code_chunks:
-                    # 创建代码chunk
-                    chunk = {
 
-                        # chunk ID
-                        "chunk_id": str(uuid.uuid4()),
-
-                        # 来源文件
-                        "source": source,
-
-                        # 标题路径
-                        "title_path": title_stack.copy(),
-
-                        # 内容类型
-                        "content_type": "code",
-
-                        # 代码文本
-                        "text": code,
-
-                        # 字符数
-                        "char_count": len(code),
-                    }
-
-                    # 保存chunk
-                    chunks.append(chunk)
-
-                # 继续下一轮
-                continue
-
-            # ====================
-            # NORMAL TEXT
-            # ====================
-
-            # 如果是普通文本或列表
-            if isinstance(el, (NarrativeText, ListItem)):
-
-                # 如果单段文本已经超长
-                if len(text) > self.max_chunk_size:
-
-                    # 先flush旧chunk
-                    flush_current_chunk()
-
-                    # 对长文本做切分
-                    split_chunks = self.split_large_text(text)
-
-                    # 遍历切分结果
-                    for split_text in split_chunks:
-                        # 创建chunk
-                        chunk = self.create_chunk(
-
-                            # 当前切分文本
-                            text_list=[split_text],
-
-                            # 标题路径
+                    chunks.append(
+                        self.create_chunk(
+                            text=code,
                             title_path=title_stack,
-
-                            # 内容类型
-                            content_type="text",
-
-                            # 来源文件
+                            content_type="code",
                             source=source,
                         )
+                    )
 
-                        # 保存chunk
-                        chunks.append(chunk)
+                i += 1
+                continue
 
-                    # 跳过后续逻辑
-                    continue
+            # ==================================
+            # Table
+            # ==================================
+            if token.type == "table_open":
 
-                # 如果当前chunk放不下
-                if current_size + len(text) > self.max_chunk_size:
-                    # 保存旧chunk
-                    flush_current_chunk()
+                flush_text_chunk()
 
-                # 加入当前chunk
-                current_texts.append(text)
+                table_buffer = []
 
-                # 更新chunk大小
-                current_size += len(text)
+                while i < len(tokens):
 
-        # 循环结束后
-        # flush最后一个chunk
-        flush_current_chunk()
+                    t = tokens[i]
 
-        # 返回所有chunk
+                    if t.type == "inline":
+                        table_buffer.append(t.content)
+
+                    if t.type == "table_close":
+                        break
+
+                    i += 1
+
+                table_text = "\n".join(table_buffer)
+
+                chunks.append(
+                    self.create_chunk(
+                        text=table_text,
+                        title_path=title_stack,
+                        content_type="table",
+                        source=source,
+                    )
+                )
+
+                i += 1
+                continue
+
+            # ==================================
+            # Paragraph / Inline
+            # ==================================
+            if token.type == "inline":
+
+                text = token.content.strip()
+
+                if text:
+
+                    if current_size + len(text) > self.max_chunk_size:
+
+                        flush_text_chunk()
+
+                    current_text.append(text)
+
+                    current_size += len(text)
+
+            i += 1
+
+        flush_text_chunk()
+
         return chunks
 
-    # 完整处理流程
-    def process(self, file_path: str):
+    def process(
+        self,
+        file_path: str,
+    ):
 
-        # 获取文件名
-        source = Path(file_path).name
-
-        # 加载markdown
-        elements = self.load_markdown(file_path)
-
-        # 执行chunk切分
-        chunks = self.chunk_elements(
-
-            # elements
-            elements=elements,
-
-            # 来源文件
-            source=source,
+        markdown_text = Path(file_path).read_text(
+            encoding="utf-8"
         )
 
-        # 返回chunks
+        tokens = self.parse_markdown(markdown_text)
+
+        chunks = self.build_chunks(
+            tokens=tokens,
+            source=Path(file_path).name,
+        )
+
         return chunks
 
-    # 存储到json方便调试
-    def save_chunks_to_json(self, chunks, output_path="debug_chunks.json"):
-        """
-        保存 chunk 到 json 文件
-        """
 
-        # 写入 json
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(
-                chunks,
-                f,
-
-                # 保留中文
-                ensure_ascii=False,
-
-                # 美化缩进
-                indent=2
-            )
-
-        print(f"Chunk 已保存到: {output_path}")
-
-
-# 程序入口
 if __name__ == "__main__":
 
-    # 创建 chunker 实例
-    chunker = MarkdownChunker(
-
-        # 最大chunk长度
-        max_chunk_size=1200,
-
-        # overlap长度
-        overlap=150,
+    chunker = MarkdownASTChunker(
+        max_chunk_size=1500,
+        overlap=200,
     )
 
-    # 处理 markdown 文件
-    chunks = chunker.process("data/test.md")
+    chunks = chunker.process("test.md")
 
-    # 保存 json debug 文件
-    chunker.save_chunks_to_json(
-        chunks,
-        "output/md_chunks.json"
-    )
-
-    # 打印分隔线
     print("=" * 100)
-
-    # 打印chunk总数
     print(f"TOTAL CHUNKS: {len(chunks)}")
-
-    # 打印分隔线
     print("=" * 100)
 
-    # 遍历所有chunk
     for i, chunk in enumerate(chunks):
-        # 打印chunk编号
-        print(f"\nCHUNK {i + 1}")
 
-        # 打印分隔线
+        print(f"\nCHUNK {i+1}")
         print("-" * 100)
 
-        # 打印标题路径
         print("TITLE PATH:")
-
-        # 拼接标题路径
         print(" > ".join(chunk["title_path"]))
 
-        # 打印内容类型
         print("\nCONTENT TYPE:")
-
-        # 输出内容类型
         print(chunk["content_type"])
 
-        # 打印字符数
         print("\nCHAR COUNT:")
-
-        # 输出字符数
         print(chunk["char_count"])
 
-        # 打印正文
         print("\nTEXT:")
-
-        # 只打印前1000字符
         print(chunk["text"][:1000])
 
-        # 空行
         print("\n")
