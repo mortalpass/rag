@@ -1,441 +1,406 @@
-# 从 markdown-it-py 导入 MarkdownIt 解析器
 import json
 
 from markdown_it import MarkdownIt
-
-# 导入 Token 类型
 from markdown_it.token import Token
 
-# 导入类型注解
+from pathlib import Path
 from typing import List, Dict
 
-# 导入 Path 用于文件读取
-from pathlib import Path
-
-# 导入 uuid 用于生成 chunk 唯一ID
 import uuid
+import re
 
 
-# 定义 Markdown AST Chunker 类
-class MarkdownASTChunker:
+class MarkdownKnowledgeChunker:
 
-    # 初始化函数
     def __init__(
-
-            self,
-
-            # chunk 最大长度
-            max_chunk_size: int = 1500,
-
-            # overlap 重叠长度
-            overlap: int = 200,
+        self,
+        max_chunk_size: int = 1500,
+        overlap: int = 200,
     ):
 
-        # 保存最大chunk大小
         self.max_chunk_size = max_chunk_size
-
-        # 保存 overlap 大小
         self.overlap = overlap
 
-        # 初始化 markdown-it parser
-        self.md = MarkdownIt("commonmark", {
+        self.md = MarkdownIt("commonmark")
 
-            # 禁止 HTML
-            "html": False,
+    # =====================================================
+    # Parse Markdown
+    # =====================================================
 
-            # 自动识别链接
-            "linkify": True,
-
-            # 禁止智能符号替换
-            "typographer": False,
-        })
-
-    # 解析 markdown
     def parse_markdown(
-
-            self,
-
-            # markdown 文本
-            markdown_text: str,
-    ) -> List[Token]:
-
-        # 使用 markdown-it 解析 markdown
-        tokens = self.md.parse(markdown_text)
-
-        # 返回 token 列表
-        return tokens
-
-    # 长文本切分
-    def split_large_text(
-
-            self,
-
-            # 待切分文本
-            text: str,
+        self,
+        markdown_text: str,
     ):
 
-        # 如果文本长度小于最大chunk
+        return self.md.parse(markdown_text)
+
+    # =====================================================
+    # Semantic Type Detection
+    # =====================================================
+
+    def detect_semantic_type(
+        self,
+        title_path: List[str],
+        content: str,
+    ):
+
+        full_text = " ".join(title_path).lower()
+
+        if "quick start" in full_text:
+            return "quickstart"
+
+        if "installation" in full_text:
+            return "installation"
+
+        if "contributing" in full_text:
+            return "contribution"
+
+        if "license" in full_text:
+            return "license"
+
+        if "api" in full_text:
+            return "api_reference"
+
+        if "example" in full_text:
+            return "example"
+
+        return "general"
+
+    # =====================================================
+    # Token Count Estimate
+    # =====================================================
+
+    def estimate_tokens(
+        self,
+        text: str,
+    ):
+
+        return int(len(text) / 4)
+
+    # =====================================================
+    # Embedding Text Builder
+    # =====================================================
+
+    def build_embedding_text(
+        self,
+        title_path,
+        content_type,
+        text,
+    ):
+
+        return f"""
+Section:
+{' > '.join(title_path)}
+
+Content Type:
+{content_type}
+
+Content:
+{text}
+""".strip()
+
+    # =====================================================
+    # Long Text Split
+    # =====================================================
+
+    def split_large_text(
+        self,
+        text: str,
+    ):
+
         if len(text) <= self.max_chunk_size:
-            # 直接返回
             return [text]
 
-        # 存储切分结果
         chunks = []
 
-        # 起始位置
         start = 0
 
-        # 循环切分
         while start < len(text):
-            # 当前chunk结束位置
+
             end = start + self.max_chunk_size
 
-            # 截取chunk
             chunk = text[start:end]
 
-            # 保存chunk
             chunks.append(chunk)
 
-            # 更新起始位置
-            # overlap 用于上下文重叠
             start = end - self.overlap
 
-        # 返回chunks
         return chunks
 
-    # 创建chunk
-    def create_chunk(
+    # =====================================================
+    # Create Knowledge Object
+    # =====================================================
 
-            self,
-
-            # chunk文本
-            text: str,
-
-            # 标题路径
-            title_path: List[str],
-
-            # 内容类型
-            content_type: str,
-
-            # 来源文件
-            source: str,
+    def create_knowledge_object(
+        self,
+        source: str,
+        title_path: List[str],
+        heading_level: int,
+        content_type: str,
+        text: str,
     ):
 
-        # 返回chunk字典
-        return {
+        semantic_type = self.detect_semantic_type(
+            title_path,
+            text,
+        )
 
-            # chunk唯一ID
+        embedding_text = self.build_embedding_text(
+            title_path=title_path,
+            content_type=content_type,
+            text=text,
+        )
+
+        knowledge_object = {
+
+            # ==========================================
+            # IDs
+            # ==========================================
+            "doc_id": source,
             "chunk_id": str(uuid.uuid4()),
 
-            # 来源文件
+            # ==========================================
+            # Source
+            # ==========================================
             "source": source,
+            "source_type": "markdown",
 
-            # 标题路径
+            # ==========================================
+            # Structure
+            # ==========================================
             "title_path": title_path.copy(),
 
-            # 内容类型
+            "title": (
+                title_path[-1]
+                if title_path
+                else "ROOT"
+            ),
+
+            "heading_level": heading_level,
+
+            # ==========================================
+            # Content
+            # ==========================================
             "content_type": content_type,
 
-            # chunk文本
+            "semantic_type": semantic_type,
+
             "text": text.strip(),
 
-            # chunk字符数
+            "embedding_text": embedding_text,
+
+            # ==========================================
+            # Metrics
+            # ==========================================
             "char_count": len(text),
+
+            "token_count_estimate": self.estimate_tokens(
+                text
+            ),
+
+            # ==========================================
+            # Retrieval Metadata
+            # ==========================================
+            "metadata": {
+
+                "is_code": (
+                    content_type == "code"
+                ),
+
+                "is_table": (
+                    content_type == "table"
+                ),
+
+                "has_headings": (
+                    len(title_path) > 0
+                ),
+
+                "section_depth": len(title_path),
+            }
         }
 
-    # 核心chunk构建逻辑
-    def build_chunks(
+        return knowledge_object
 
-            self,
+    # =====================================================
+    # Build Knowledge Objects
+    # =====================================================
 
-            # markdown token列表
-            tokens: List[Token],
-
-            # 来源文件
-            source: str,
+    def build_knowledge_objects(
+        self,
+        tokens: List[Token],
+        source: str,
     ):
 
-        # 最终chunk结果
-        chunks = []
+        knowledge_objects = []
 
-        # 标题栈
-        # 用于保存标题层级路径
         title_stack = []
 
-        # 当前文本buffer
         current_text = []
-
-        # 当前chunk大小
         current_size = 0
 
-        # token索引
+        current_heading_level = 0
+
         i = 0
 
-        # flush函数
-        # 用于保存当前文本chunk
+        # ==========================================
+        # Flush Current Text Chunk
+        # ==========================================
+
         def flush_text_chunk():
 
-            # 使用外层变量
             nonlocal current_text
-
-            # 使用外层变量
             nonlocal current_size
 
-            # 如果当前没有文本
             if not current_text:
-                # 直接返回
                 return
 
-            # 拼接文本
             text = "\n".join(current_text).strip()
 
-            # 如果文本为空
             if not text:
-                # 直接返回
                 return
 
-            # 对超长文本切分
-            split_chunks = self.split_large_text(text)
+            split_chunks = self.split_large_text(
+                text
+            )
 
-            # 遍历切分结果
             for split_text in split_chunks:
-                # 创建chunk并保存
-                chunks.append(
 
-                    self.create_chunk(
-
-                        # chunk文本
-                        text=split_text,
-
-                        # 标题路径
-                        title_path=title_stack,
-
-                        # 内容类型
-                        content_type="text",
-
-                        # 来源文件
-                        source=source,
-                    )
+                obj = self.create_knowledge_object(
+                    source=source,
+                    title_path=title_stack,
+                    heading_level=current_heading_level,
+                    content_type="text",
+                    text=split_text,
                 )
 
-            # 清空当前文本
-            current_text = []
+                knowledge_objects.append(obj)
 
-            # 重置当前大小
+            current_text = []
             current_size = 0
 
-        # 遍历所有token
+        # ==========================================
+        # Main Loop
+        # ==========================================
+
         while i < len(tokens):
 
-            # 当前token
             token = tokens[i]
 
-            # ==================================
+            # ======================================
             # Heading
-            # ==================================
+            # ======================================
 
-            # 如果是标题开始
             if token.type == "heading_open":
-                # flush之前正文
+
                 flush_text_chunk()
 
-                # 获取标题级别
-                # h1 -> 1
-                # h2 -> 2
                 level = int(token.tag[1])
 
-                # heading_open 后面通常是 inline token
                 inline_token = tokens[i + 1]
 
-                # 获取标题文本
                 title = inline_token.content.strip()
 
-                # 修正标题层级
-                # 例如：
-                # h1 -> h2 -> h3
-                # 如果出现新h2
-                # 需要截断旧h3
                 title_stack[:] = title_stack[:level - 1]
 
-                # 加入当前标题
                 title_stack.append(title)
 
-                # 跳过：
-                # heading_open
-                # inline
-                # heading_close
-                i += 3
+                current_heading_level = level
 
-                # 继续下一轮
-                continue
-
-            # ==================================
-            # Fence Code Block
-            # ==================================
-
-            # 如果是代码块
-            if token.type == "fence":
-
-                # flush之前正文
-                flush_text_chunk()
-
-                # 获取代码文本
-                code_text = token.content.strip()
-
-                # 对超长代码切分
-                code_chunks = self.split_large_text(code_text)
-
-                # 遍历代码chunk
-                for code in code_chunks:
-                    # 创建代码chunk
-                    chunks.append(
-
-                        self.create_chunk(
-
-                            # 代码文本
-                            text=code,
-
-                            # 标题路径
-                            title_path=title_stack,
-
-                            # 内容类型
-                            content_type="code",
-
-                            # 来源文件
-                            source=source,
-                        )
-                    )
-
-                # token索引+1
-                i += 1
-
-                # 继续下一轮
-                continue
-
-            # ==================================
-            # Table
-            # ==================================
-
-            # 如果是table开始
-            if token.type == "table_open":
-
-                # flush正文
-                flush_text_chunk()
-
-                # 表格buffer
-                table_buffer = []
-
-                # 收集整个table内容
-                while i < len(tokens):
-
-                    # 当前token
-                    t = tokens[i]
-
-                    # 如果是inline文本
-                    if t.type == "inline":
-                        # 保存文本
-                        table_buffer.append(t.content)
-
-                    # 如果table结束
-                    if t.type == "table_close":
-                        # 跳出循环
-                        break
-
-                    # token索引+1
-                    i += 1
-
-                # 合并table文本
-                table_text = "\n".join(table_buffer)
-
-                # 创建table chunk
-                chunks.append(
-
-                    self.create_chunk(
-
-                        # table文本
-                        text=table_text,
-
-                        # 标题路径
-                        title_path=title_stack,
-
-                        # 内容类型
-                        content_type="table",
-
-                        # 来源文件
-                        source=source,
-                    )
+                # TITLE本身也是知识对象
+                title_obj = self.create_knowledge_object(
+                    source=source,
+                    title_path=title_stack,
+                    heading_level=level,
+                    content_type="title",
+                    text=title,
                 )
 
-                # token索引+1
-                i += 1
+                knowledge_objects.append(title_obj)
 
-                # 继续下一轮
+                i += 3
                 continue
 
-            # ==================================
-            # Paragraph / Inline
-            # ==================================
+            # ======================================
+            # Code Fence
+            # ======================================
 
-            # 如果是inline文本
+            if token.type == "fence":
+
+                flush_text_chunk()
+
+                code_text = token.content.strip()
+
+                code_chunks = self.split_large_text(
+                    code_text
+                )
+
+                for code in code_chunks:
+
+                    obj = self.create_knowledge_object(
+                        source=source,
+                        title_path=title_stack,
+                        heading_level=current_heading_level,
+                        content_type="code",
+                        text=code,
+                    )
+
+                    knowledge_objects.append(obj)
+
+                i += 1
+                continue
+
+            # ======================================
+            # Paragraph
+            # ======================================
+
             if token.type == "inline":
 
-                # 获取文本
                 text = token.content.strip()
 
-                # 如果文本不为空
                 if text:
 
-                    # 如果当前chunk放不下
-                    if current_size + len(text) > self.max_chunk_size:
-                        # flush旧chunk
+                    if (
+                        current_size + len(text)
+                        > self.max_chunk_size
+                    ):
+
                         flush_text_chunk()
 
-                    # 加入当前文本buffer
                     current_text.append(text)
 
-                    # 更新chunk大小
                     current_size += len(text)
 
-            # token索引+1
             i += 1
 
-        # 循环结束后flush最后chunk
         flush_text_chunk()
 
-        # 返回chunks
-        return chunks
+        return knowledge_objects
 
-    # 完整处理流程
+    # =====================================================
+    # Process File
+    # =====================================================
+
     def process(
-
-            self,
-
-            # markdown文件路径
-            file_path: str,
+        self,
+        file_path: str,
     ):
 
-        # 读取markdown文件
-        markdown_text = Path(file_path).read_text(
-
-            # utf8编码
+        markdown_text = Path(
+            file_path
+        ).read_text(
             encoding="utf-8"
         )
 
-        # 解析markdown
-        tokens = self.parse_markdown(markdown_text)
+        tokens = self.parse_markdown(
+            markdown_text
+        )
 
-        # 构建chunks
-        chunks = self.build_chunks(
-
-            # token列表
+        objects = self.build_knowledge_objects(
             tokens=tokens,
-
-            # 来源文件名
             source=Path(file_path).name,
         )
 
-        # 返回chunks
-        return chunks
+        return objects
 
     def save_chunks_to_json(self, chunks, output_path="debug_chunks.json"):
         """
@@ -458,68 +423,47 @@ class MarkdownASTChunker:
         print(f"Chunk 已保存到: {output_path}")
 
 
-# 程序入口
+# =========================================================
+# Main
+# =========================================================
+
 if __name__ == "__main__":
 
-    # 创建chunker实例
-    chunker = MarkdownASTChunker(
-
-        # 最大chunk长度
+    chunker = MarkdownKnowledgeChunker(
         max_chunk_size=1500,
-
-        # overlap长度
         overlap=200,
     )
 
-    # 处理markdown文件
-    chunks = chunker.process("test.md")
+    objects = chunker.process("data/test.md")
 
     # 保存 json debug 文件
     chunker.save_chunks_to_json(
-        chunks,
-        "debug_chunks.json"
+        objects,
+        "output/md_chunks.json"
     )
 
-    # 打印分隔线
+    print("=" * 100)
+    print(f"TOTAL OBJECTS: {len(objects)}")
     print("=" * 100)
 
-    # 打印chunk总数
-    print(f"TOTAL CHUNKS: {len(chunks)}")
+    for i, obj in enumerate(objects[:10]):
 
-    # 打印分隔线
-    print("=" * 100)
-
-    # 遍历所有chunk
-    for i, chunk in enumerate(chunks):
-        # 打印chunk编号
-        print(f"\nCHUNK {i + 1}")
-
-        # 打印分隔线
+        print(f"\nOBJECT {i+1}")
         print("-" * 100)
 
-        # 打印标题路径
         print("TITLE PATH:")
+        print(" > ".join(obj["title_path"]))
 
-        # 拼接并输出标题路径
-        print(" > ".join(chunk["title_path"]))
-
-        # 打印内容类型
         print("\nCONTENT TYPE:")
+        print(obj["content_type"])
 
-        # 输出内容类型
-        print(chunk["content_type"])
+        print("\nSEMANTIC TYPE:")
+        print(obj["semantic_type"])
 
-        # 打印字符数
-        print("\nCHAR COUNT:")
+        print("\nTOKEN ESTIMATE:")
+        print(obj["token_count_estimate"])
 
-        # 输出字符数
-        print(chunk["char_count"])
-
-        # 打印正文
         print("\nTEXT:")
+        print(obj["text"][:500])
 
-        # 只输出前1000字符
-        print(chunk["text"][:1000])
-
-        # 空行
         print("\n")
