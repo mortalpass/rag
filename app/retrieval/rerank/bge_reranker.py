@@ -5,13 +5,20 @@ from transformers import (
     AutoModelForSequenceClassification
 )
 
-from app.config.settings import Settings
+from app.config.settings import (
+    Settings
+)
+
+from app.models.model_manager import (
+    ModelManager
+)
 
 from app.retrieval.rerank.reranker import (
     Reranker
 )
-from app.models.model_manager import (
-    ModelManager
+
+from app.schemas.rerank_result import (
+    RerankResult
 )
 
 
@@ -20,6 +27,7 @@ class BGEReranker(
 ):
 
     def __init__(self):
+
         model_dir = (
             ModelManager
             .get_reranker_model_path()
@@ -48,7 +56,7 @@ class BGEReranker(
         pairs = [
             (
                 query,
-                item["chunk"].content
+                item.chunk.content
             )
             for item in retrieval_results
         ]
@@ -75,18 +83,16 @@ class BGEReranker(
             scores
         ):
 
-            reranked.append({
-                "chunk": item["chunk"],
-                "retrieval_score": item[
-                    "score"
-                ],
-                "rerank_score": float(score)
-            })
+            reranked.append(
+                RerankResult(
+                    chunk=item.chunk,
+                    retrieval_score=item.score,
+                    rerank_score=float(score)
+                )
+            )
 
         reranked.sort(
-            key=lambda x: x[
-                "rerank_score"
-            ],
+            key=lambda x: x.rerank_score,
             reverse=True
         )
 

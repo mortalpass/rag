@@ -3,6 +3,7 @@ import numpy as np
 from app.embedding.bge_embedding import (
     BGEEmbedding
 )
+
 from app.schemas.retrieval_result import (
     RetrievalResult
 )
@@ -37,13 +38,15 @@ class DenseIndex:
             q_emb
         )
 
-        ranked = np.argsort(scores)[::-1][:top_k]
+        ranked_indices = np.argsort(
+            scores
+        )[::-1][:top_k]
 
         return [
             RetrievalResult(
                 chunk=self.chunks[i],
-                score=float(score),
-                source="bm25"
+                score=float(scores[i]),
+                source="dense"
             )
-            for i, score in ranked
+            for i in ranked_indices
         ]
