@@ -49,10 +49,6 @@ class MarkdownASTParser:
 
             token = tokens[i]
 
-            # ---------------------------------
-            # heading
-            # ---------------------------------
-
             if token.type == "heading_open":
 
                 level = int(token.tag[1])
@@ -82,10 +78,6 @@ class MarkdownASTParser:
                 i += 3
                 continue
 
-            # ---------------------------------
-            # code block
-            # ---------------------------------
-
             current = stack[-1]
 
             if token.type in [
@@ -97,37 +89,6 @@ class MarkdownASTParser:
                     "type": "code",
                     "content": token.content
                 })
-
-            # ---------------------------------
-            # table
-            # ---------------------------------
-
-            elif token.type == "table_open":
-
-                table_content = []
-
-                j = i
-
-                while (
-                    j < len(tokens)
-                    and tokens[j].type != "table_close"
-                ):
-
-                    if tokens[j].content.strip():
-                        table_content.append(
-                            tokens[j].content
-                        )
-
-                    j += 1
-
-                current.blocks.append({
-                    "type": "table",
-                    "content": "\n".join(table_content)
-                })
-
-            # ---------------------------------
-            # paragraph
-            # ---------------------------------
 
             elif token.type == "inline":
 

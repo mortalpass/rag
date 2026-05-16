@@ -1,34 +1,30 @@
 from pathlib import Path
 
-from ast_parser import MarkdownASTParser
-from chunk_exporter import ChunkExporter
+from app.chunking.ast_parser import (
+    MarkdownASTParser
+)
 
-from semantic_chunker import SemanticChunker
+from app.chunking.semantic_chunker import (
+    SemanticChunker
+)
 
+from app.storage.chunk_exporter import (
+    ChunkExporter
+)
 
-def print_chunk(chunk):
+from app.retrieval.hybrid_retriever import (
+    HybridRetriever
+)
 
-    print("=" * 100)
-
-    print("TITLE:", chunk.title)
-
-    print("PATH:", " > ".join(chunk.path))
-
-    print("TOKENS:", chunk.token_count)
-
-    print("TYPE:", chunk.chunk_type)
-
-    print("-" * 100)
-
-    print(chunk.content[:800])
-
-    print("\n")
+from app.evaluation.retrieval_eval import (
+    RetrievalEvaluator
+)
 
 
-def main():
+def build_chunks():
 
     markdown_text = Path(
-        "data/test.md"
+        "data/raw/test.md"
     ).read_text(
         encoding="utf-8"
     )
@@ -49,8 +45,36 @@ def main():
 
     ChunkExporter.export_to_json(
         chunks,
-        "output/output_chunks.json"
+        "data/processed/chunks.json"
     )
+
+    return chunks
+
+
+def main():
+
+    chunks = build_chunks()
+
+    retriever = HybridRetriever(
+        chunks
+    )
+
+    print("\nHybrid RAG Ready\n")
+
+    while True:
+
+        query = input("\nQuery > ")
+
+        if query == "exit":
+            break
+
+        results = retriever.search(
+            query
+        )
+
+        RetrievalEvaluator.print_results(
+            results
+        )
 
 
 if __name__ == "__main__":

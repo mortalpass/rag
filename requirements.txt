@@ -1,0 +1,10 @@
+markdown-it-py
+sentence-transformers==2.6.1
+transformers==4.38.2
+torch==2.2.2
+numpy==1.26.4
+tiktoken
+rank-bm25
+jieba
+modelscope
+protobuf

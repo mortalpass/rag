@@ -7,7 +7,7 @@ class ChunkExporter:
     @staticmethod
     def export_to_json(
         chunks,
-        output_path="chunks.json"
+        output_path
     ):
 
         data = [
@@ -25,6 +25,6 @@ class ChunkExporter:
         )
 
         print(
-            f"\nSaved {len(chunks)} chunks "
+            f"Saved {len(chunks)} chunks "
             f"to {output_path}"
         )

@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from typing import List, Dict
-from uuid import uuid4
 
 
 @dataclass
