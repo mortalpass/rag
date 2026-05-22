@@ -1,6 +1,6 @@
 import numpy as np
 
-from app.embedding.bge_embedding import (
+from app.embedding.models.bge_embedding import (
     BGEEmbedding
 )
 

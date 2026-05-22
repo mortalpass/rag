@@ -7,6 +7,8 @@ class Settings:
         "Xorbits/bge-reranker-base"
     )
 
+    EMBEDDING_PROVIDER = "bge"
+
     RERANK_TOP_K = 3
 
     MAX_TOKENS = 1000

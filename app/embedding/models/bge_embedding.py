@@ -2,18 +2,12 @@ from sentence_transformers import (
     SentenceTransformer
 )
 
-from app.embedding.embedding_provider import (
-    EmbeddingProvider
-)
-
 from app.models.model_manager import (
     ModelManager
 )
 
 
-class BGEEmbedding(
-    EmbeddingProvider
-):
+class BGEEmbedding:
 
     def __init__(self):
 
@@ -26,16 +20,26 @@ class BGEEmbedding(
             model_path
         )
 
-    def embed_text(self, text):
+    def embed_text(
+        self,
+        text: str
+    ) -> list[float]:
 
-        return self.model.encode(
+        embedding = self.model.encode(
             text,
             normalize_embeddings=True
         )
 
-    def embed_texts(self, texts):
+        return embedding.tolist()
 
-        return self.model.encode(
+    def embed_batch(
+        self,
+        texts: list[str]
+    ) -> list[list[float]]:
+
+        embeddings = self.model.encode(
             texts,
             normalize_embeddings=True
         )
+
+        return embeddings.tolist()

@@ -7,6 +7,9 @@ from app.chunking.ast_parser import (
 from app.chunking.semantic_chunker import (
     SemanticChunker
 )
+from app.config.settings import Settings
+
+from app.embedding.providers.factory import EmbeddingFactory
 
 from app.storage.chunk_exporter import (
     ChunkExporter
@@ -22,7 +25,6 @@ from app.evaluation.retrieval_eval import (
 
 
 def build_chunks():
-
     markdown_text = Path(
         "data/raw/test.md"
     ).read_text(
@@ -33,12 +35,15 @@ def build_chunks():
 
     root = parser.parse(markdown_text)
 
-    chunker = SemanticChunker()
+    provider = EmbeddingFactory.create(
+        Settings.EMBEDDING_PROVIDER
+    )
+
+    chunker = SemanticChunker(provider)
 
     chunks = []
 
     for child in root.children:
-
         chunks.extend(
             chunker.chunk_section(child)
         )
@@ -52,7 +57,6 @@ def build_chunks():
 
 
 def main():
-
     chunks = build_chunks()
 
     retriever = HybridRetriever(
@@ -78,5 +82,4 @@ def main():
 
 
 if __name__ == "__main__":
-
     main()

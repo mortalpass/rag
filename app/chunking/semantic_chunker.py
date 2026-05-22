@@ -9,21 +9,17 @@ from app.chunking.tokenizer_utils import (
 
 from app.config.settings import Settings
 
-from app.embedding.bge_embedding import (
-    BGEEmbedding
-)
+from app.embedding.providers.base import EmbeddingProvider
 
 
 class SemanticChunker:
-
-    def __init__(self):
-
-        self.embedding_model = BGEEmbedding()
+    def __init__(self, embedding_provider: EmbeddingProvider):
+        self.embedding_provider = embedding_provider
 
     def cosine_similarity(
-        self,
-        v1,
-        v2
+            self,
+            v1,
+            v2
     ):
 
         return np.dot(v1, v2)
@@ -37,7 +33,6 @@ class SemanticChunker:
         )
 
         for idx, region in enumerate(regions):
-
             text = "\n\n".join([
                 b["content"]
                 for b in region
@@ -65,7 +60,6 @@ class SemanticChunker:
             chunks.append(chunk)
 
         for child in section.children:
-
             chunks.extend(
                 self.chunk_section(child)
             )
@@ -73,8 +67,8 @@ class SemanticChunker:
         return chunks
 
     def detect_semantic_regions(
-        self,
-        blocks
+            self,
+            blocks
     ):
 
         if not blocks:
@@ -84,8 +78,8 @@ class SemanticChunker:
 
         current_region = [blocks[0]]
 
-        prev_emb = self.embedding_model.embed_text(
-            blocks[0]["content"]
+        prev_emb = self.embedding_provider.embed_batch(
+            [blocks[0]["content"]]
         )
 
         current_tokens = count_tokens(
@@ -98,8 +92,8 @@ class SemanticChunker:
 
             tokens = count_tokens(content)
 
-            emb = self.embedding_model.embed_text(
-                content
+            emb = self.embedding_provider.embed_batch(
+                [content]
             )
 
             similarity = self.cosine_similarity(
@@ -110,14 +104,14 @@ class SemanticChunker:
             should_split = False
 
             if (
-                similarity
-                < Settings.TOPIC_SHIFT_THRESHOLD
+                    similarity
+                    < Settings.TOPIC_SHIFT_THRESHOLD
             ):
                 should_split = True
 
             if (
-                current_tokens + tokens
-                > Settings.MAX_TOKENS
+                    current_tokens + tokens
+                    > Settings.MAX_TOKENS
             ):
                 should_split = True
 
