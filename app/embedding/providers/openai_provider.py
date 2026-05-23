@@ -27,7 +27,7 @@ class OpenAIProvider(EmbeddingProvider):
 
         return response.data[0].embedding
 
-    def embed_batch(
+    def embed_texts(
         self,
         texts: list[str]
     ) -> list[list[float]]:

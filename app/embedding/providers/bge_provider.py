@@ -11,8 +11,17 @@ class BGEProvider(EmbeddingProvider):
     ):
         self.model = model
 
+        self._dimension = (
+            self.model.model
+            .get_sentence_embedding_dimension()
+        )
+
+    @property
+    def dimension(self):
+        return self._dimension
+
     def embed_text(self, text: str) -> list[float]:
         return self.model.embed_text(text)
 
-    def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        return self.model.embed_batch(texts)
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        return self.model.embed_texts(texts)

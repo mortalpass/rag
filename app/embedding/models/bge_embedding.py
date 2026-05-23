@@ -32,7 +32,7 @@ class BGEEmbedding:
 
         return embedding.tolist()
 
-    def embed_batch(
+    def embed_texts(
         self,
         texts: list[str]
     ) -> list[list[float]]:
