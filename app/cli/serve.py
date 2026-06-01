@@ -1,5 +1,11 @@
+# app/cli/serve.py
+
 from app.pipelines.retrieval_pipeline import (
     RetrievalPipeline
+)
+
+from app.evaluation.retrieval_eval import (
+    RetrievalEvaluator
 )
 
 
@@ -11,7 +17,9 @@ def main():
 
     while True:
 
-        query = input("\nQuery > ")
+        query = input(
+            "\nQuery > "
+        )
 
         if query == "exit":
             break
@@ -21,23 +29,9 @@ def main():
             top_k=5
         )
 
-        for result in results:
-
-            entity = result["entity"]
-
-            print("\n================")
-            print(entity["content"])
-
-            metadata = entity.get(
-                "metadata",
-                {}
-            )
-
-            print(metadata)
-
-            print(
-                f"score: {result['distance']}"
-            )
+        RetrievalEvaluator.print_results(
+            results
+        )
 
 
 if __name__ == "__main__":

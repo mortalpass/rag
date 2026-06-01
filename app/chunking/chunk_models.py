@@ -1,5 +1,6 @@
-from dataclasses import dataclass, field
-from typing import List, Dict
+from dataclasses import dataclass
+
+from app.schemas.chunk_metadata import ChunkMetadata
 
 
 @dataclass
@@ -11,22 +12,31 @@ class Chunk:
 
     title: str
 
-    path: List[str]
+    path: list
 
     content: str
 
     token_count: int
 
-    metadata: Dict = field(default_factory=dict)
+    metadata: ChunkMetadata
 
     def to_dict(self):
 
         return {
+
             "chunk_id": self.chunk_id,
+
             "chunk_type": self.chunk_type,
+
             "title": self.title,
+
             "path": self.path,
+
             "content": self.content,
+
             "token_count": self.token_count,
-            "metadata": self.metadata
+
+            "metadata": (
+                self.metadata.model_dump()
+            )
         }

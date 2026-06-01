@@ -1,3 +1,5 @@
+# app/evaluation/retrieval_eval.py
+
 class RetrievalEvaluator:
 
     @staticmethod
@@ -5,42 +7,54 @@ class RetrievalEvaluator:
 
         print("\nReranked Results:\n")
 
-        for r in results:
-
-            chunk = r.chunk
+        for idx, r in enumerate(results):
 
             print("=" * 80)
 
             print(
-                "Rerank Score:",
-                round(
-                    r.rerank_score,
-                    4
-                )
+                f"Rank: {idx + 1}"
             )
 
             print(
-                "Retrieval Score:",
-                round(
-                    r.retrieval_score,
-                    4
-                )
+                "Dense Score:",
+                round(r.dense_score, 4)
+            )
+
+            print(
+                "BM25 Score:",
+                round(r.bm25_score, 4)
+            )
+
+            print(
+                "Fusion Score:",
+                round(r.fusion_score, 4)
+            )
+
+            print(
+                "Rerank Score:",
+                round(r.rerank_score, 4)
             )
 
             print(
                 "Title:",
-                chunk.title
+                r.metadata.get(
+                    "title",
+                    ""
+                )
             )
 
             print(
                 "Path:",
                 " > ".join(
-                    chunk.path
+                    r.metadata.get(
+                        "path",
+                        []
+                    )
                 )
             )
 
             print("-" * 80)
 
             print(
-                chunk.content[:500]
+                r.content[:500]
             )

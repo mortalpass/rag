@@ -1,12 +1,23 @@
+import os
 from pathlib import Path
-from uuid import uuid4
 
-from app.chunking.ast_parser import MarkdownASTParser
-from app.chunking.semantic_chunker import SemanticChunker
+from app.chunking.ast_parser import (
+    MarkdownASTParser
+)
 
-from app.embedding.providers.factory import EmbeddingFactory
+from app.chunking.semantic_chunker import (
+    SemanticChunker
+)
 
-from app.vectorstores.milvus_store import MilvusStore
+from app.embedding.providers.factory import (
+    EmbeddingFactory
+)
+from app.retrieval.bm25.bm25_index import BM25Index
+from app.storage.ast_exporter import print_tree
+
+from app.vectorstores.milvus_store import (
+    MilvusStore
+)
 
 from app.config.settings import Settings
 
@@ -35,9 +46,9 @@ class IngestionPipeline:
 
         self.vector_store.create_collection()
 
-    def ingest_markdown(
-        self,
-        file_path: str
+    def parse_and_chunk(
+            self,
+            file_path: str
     ):
 
         markdown_text = Path(
@@ -53,40 +64,52 @@ class IngestionPipeline:
         chunks = []
 
         for child in root.children:
-
             chunks.extend(
                 self.chunker.chunk_section(
                     child
                 )
             )
 
+        return chunks
+
+    def ingest_chunks(
+            self,
+            chunks
+    ):
+
         texts = [
             chunk.content
             for chunk in chunks
         ]
 
-        vectors = self.embedding_provider.embed_texts(texts)
+        vectors = (
+            self.embedding_provider
+            .embed_texts(texts)
+        )
 
         ids = []
 
         payloads = []
 
         for chunk in chunks:
-
-            chunk_id = str(uuid4())
-
-            ids.append(chunk_id)
+            ids.append(chunk.chunk_id)
 
             payloads.append(
+
                 {
+
+                    "chunk_id": chunk.chunk_id,
+
                     "content": chunk.content,
-                    "metadata": {
-                        "header_path": getattr(
-                            chunk,
-                            "header_path",
-                            ""
-                        )
-                    }
+
+                    "title": chunk.title,
+
+                    "path": chunk.path,
+
+                    "chunk_type": chunk.chunk_type,
+
+                    # flatten metadata
+                    **chunk.metadata.model_dump()
                 }
             )
 
@@ -99,3 +122,21 @@ class IngestionPipeline:
         print(
             f"Ingested {len(chunks)} chunks"
         )
+
+    def ingest_markdown(self, file_path: str):
+
+        chunks = self.parse_and_chunk(file_path)
+
+        self.ingest_chunks(chunks)
+
+        bm25_index = BM25Index()
+
+        if os.path.exists(bm25_index.path):
+            bm25_index.load()
+            bm25_index.build(chunks, incremental=True)
+        else:
+            bm25_index.build(chunks, incremental=False)
+
+        bm25_index.save()
+
+        return chunks

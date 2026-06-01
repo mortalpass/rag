@@ -1,50 +1,45 @@
+import pickle
 from rank_bm25 import BM25Okapi
-import jieba
-from app.schemas.retrieval_result import (
-    RetrievalResult
-)
+
+from app.chunking.tokenizer_utils import tokenize
 
 
 class BM25Index:
 
-    def __init__(self, chunks):
+    def __init__(self, path: str = "bm25.index"):
+        self.path = path
+        self.bm25 = None
+        self.chunks = []
 
-        self.chunks = chunks
+    def build(self, chunks, incremental: bool = False):
+        """
+        chunks: 新增 chunks 列表
+        incremental: 是否增量更新
+        """
+        if incremental and self.chunks:
+            self.chunks.extend(chunks)  # 保留已有chunks
+        else:
+            self.chunks = chunks  # 全量覆盖
 
-        self.corpus = [
-            list(jieba.cut(c.content))
-            for c in chunks
+        tokenized = [
+            tokenize(chunk.content)
+            for chunk in self.chunks
         ]
 
-        self.bm25 = BM25Okapi(
-            self.corpus
-        )
+        self.bm25 = BM25Okapi(tokenized)
 
-    def search(
-        self,
-        query,
-        top_k=5
-    ):
+    def save(self):
 
-        tokenized_query = list(
-            jieba.cut(query)
-        )
+        with open(self.path, "wb") as f:
+            pickle.dump({
+                "bm25": self.bm25,
+                "chunks": self.chunks
+            }, f)
 
-        scores = self.bm25.get_scores(
-            tokenized_query
-        )
+    def load(self):
 
-        ranked = sorted(
-            enumerate(scores),
-            key=lambda x: x[1],
-            reverse=True
-        )[:top_k]
+        with open(self.path, "rb") as f:
+            data = pickle.load(f)
 
-        return [
-            RetrievalResult(
-                chunk=self.chunks[i],
-                score=float(score),
-                source="bm25"
-            )
-            for i, score in ranked
-        ]
+        self.bm25 = data["bm25"]
+        self.chunks = data["chunks"]

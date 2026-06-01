@@ -1,53 +1,51 @@
-from collections import defaultdict
-
-from app.schemas.retrieval_result import (
-    RetrievalResult
-)
-
+# app/retrieval/fusion/rrf.py
+from app.schemas.retrieval_result import RetrievalResult
 
 class RRF:
 
-    def __init__(self, k=60):
+    def fuse(self, dense_results, bm25_results, k: int = 60):
 
-        self.k = k
+        scores = {}
+        all_docs = {}
 
-    def fuse(
-        self,
-        dense_results,
-        bm25_results
-    ):
+        # Dense 结果
+        for rank, doc in enumerate(dense_results):
+            doc_id = doc.chunk_id
 
-        score_map = defaultdict(float)
+            # 更新 RRF 分数
+            scores.setdefault(doc_id, 0)
+            scores[doc_id] += 1 / (k + rank + 1)
 
-        chunk_map = {}
+            # 如果是新文档，直接存储
+            if doc_id not in all_docs:
+                all_docs[doc_id] = doc
+            else:
+                # 已存在对象，更新 dense_score
+                existing = all_docs[doc_id]
+                existing.dense_score = doc.dense_score  # Dense一定有分数
 
-        def add(results):
+        # BM25 结果
+        for rank, doc in enumerate(bm25_results):
+            doc_id = doc.chunk_id
 
-            for rank, item in enumerate(results):
+            # 更新 RRF 分数
+            scores.setdefault(doc_id, 0)
+            scores[doc_id] += 1 / (k + rank + 1)
 
-                cid = item.chunk.chunk_id
+            if doc_id not in all_docs:
+                all_docs[doc_id] = doc
+            else:
+                # 已存在对象，更新 bm25_score
+                existing = all_docs[doc_id]
+                existing.bm25_score = doc.bm25_score  # BM25一定有分数
 
-                score_map[cid] += (
-                    1 / (self.k + rank)
-                )
+        # 按融合分数排序
+        reranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
-                chunk_map[cid] = item.chunk
+        fused_results = []
+        for doc_id, fusion_score in reranked:
+            doc = all_docs[doc_id]
+            doc.fusion_score = fusion_score
+            fused_results.append(doc)
 
-        add(dense_results)
-
-        add(bm25_results)
-
-        fused = [
-            RetrievalResult(
-                chunk=chunk_map[cid],
-                score=score,
-                source="rrf"
-            )
-            for cid, score in score_map.items()
-        ]
-
-        return sorted(
-            fused,
-            key=lambda x: x.score,
-            reverse=True
-        )
+        return fused_results

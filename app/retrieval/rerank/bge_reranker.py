@@ -1,101 +1,22 @@
-import torch
+# app/retrieval/rerank/bge_reranker.py
+from app.models.model_manager import ModelManager
+from sentence_transformers import CrossEncoder
 
-from transformers import (
-    AutoTokenizer,
-    AutoModelForSequenceClassification
-)
-
-from app.config.settings import (
-    Settings
-)
-
-from app.models.model_manager import (
-    ModelManager
-)
-
-from app.retrieval.rerank.reranker import (
-    Reranker
-)
-
-from app.schemas.rerank_result import (
-    RerankResult
-)
-
-
-class BGEReranker(
-    Reranker
-):
+class BGEReranker:
 
     def __init__(self):
+        model_path = ModelManager.get_reranker_model_path()
+        self.model = CrossEncoder(model_path)
 
-        model_dir = (
-            ModelManager
-            .get_reranker_model_path()
-        )
+    def rerank(self, query, documents, top_k=5):
+        pairs = [[query, doc.content] for doc in documents]
+        scores = self.model.predict(pairs)
 
-        self.tokenizer = (
-            AutoTokenizer.from_pretrained(
-                model_dir
-            )
-        )
+        ranked = sorted(zip(documents, scores), key=lambda x: x[1], reverse=True)
 
-        self.model = (
-            AutoModelForSequenceClassification
-            .from_pretrained(model_dir)
-        )
+        results = []
+        for doc, score in ranked[:top_k]:
+            doc.rerank_score = float(score)
+            results.append(doc)
 
-        self.model.eval()
-
-    @torch.no_grad()
-    def rerank(
-        self,
-        query,
-        retrieval_results
-    ):
-
-        pairs = [
-            (
-                query,
-                item.chunk.content
-            )
-            for item in retrieval_results
-        ]
-
-        inputs = self.tokenizer(
-            pairs,
-            padding=True,
-            truncation=True,
-            return_tensors="pt",
-            max_length=512
-        )
-
-        scores = (
-            self.model(**inputs)
-            .logits
-            .view(-1,)
-            .float()
-        )
-
-        reranked = []
-
-        for item, score in zip(
-            retrieval_results,
-            scores
-        ):
-
-            reranked.append(
-                RerankResult(
-                    chunk=item.chunk,
-                    retrieval_score=item.score,
-                    rerank_score=float(score)
-                )
-            )
-
-        reranked.sort(
-            key=lambda x: x.rerank_score,
-            reverse=True
-        )
-
-        return reranked[
-            :Settings.RERANK_TOP_K
-        ]
+        return results

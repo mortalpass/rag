@@ -1,15 +1,20 @@
 from dataclasses import dataclass
-
-from app.chunking.chunk_models import (
-    Chunk
-)
+from typing import Dict, Any
 
 
 @dataclass
 class RetrievalResult:
 
-    chunk: Chunk
+    chunk_id: str
 
-    score: float
+    content: str
 
-    source: str
+    metadata: Dict[str, Any]
+
+    dense_score: float = 0.0
+
+    bm25_score: float = 0.0
+
+    fusion_score: float = 0.0
+
+    rerank_score: float = 0.0
