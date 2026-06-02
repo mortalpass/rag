@@ -2,4 +2,5 @@
 
 data
 
-output
+app/cli/bm25.index
+app/cli/milvus.db

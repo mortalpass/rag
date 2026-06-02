@@ -89,7 +89,7 @@ class MilvusStore(BaseVectorStore):
             index_params=index_params
         )
 
-    def insert(
+    def upsert(
         self,
         ids: List[str],
         vectors: List[List[float]],
@@ -134,7 +134,7 @@ class MilvusStore(BaseVectorStore):
 
             data.append(row)
 
-        self.client.insert(
+        self.client.upsert(
             collection_name=self.collection_name,
             data=data
         )

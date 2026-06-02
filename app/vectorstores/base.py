@@ -9,7 +9,7 @@ class BaseVectorStore(ABC):
         pass
 
     @abstractmethod
-    def insert(
+    def upsert(
         self,
         ids: List[str],
         vectors: List[List[float]],

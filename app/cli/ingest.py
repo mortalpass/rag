@@ -10,9 +10,13 @@ from app.storage.chunk_exporter import (
 def main():
     pipeline = IngestionPipeline()
 
-    chunks = pipeline.ingest_markdown(
+    # chunks = pipeline.ingest_markdown(
+    #     "/Users/sw-team/Desktop/rag/"
+    #     "data/raw/test.md"
+    # )
+    chunks = pipeline.ingest_directory(
         "/Users/sw-team/Desktop/rag/"
-        "data/raw/test.md"
+        "data/raw"
     )
 
     ChunkExporter.export_to_json(

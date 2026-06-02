@@ -17,9 +17,24 @@ class BM25Index:
         incremental: 是否增量更新
         """
         if incremental and self.chunks:
-            self.chunks.extend(chunks)  # 保留已有chunks
+
+            existing_ids = {
+                c.chunk_id
+                for c in self.chunks
+            }
+
+            new_chunks = [
+                c
+                for c in chunks
+                if c.chunk_id not in existing_ids
+            ]
+
+            self.chunks.extend(
+                new_chunks
+            )
+
         else:
-            self.chunks = chunks  # 全量覆盖
+            self.chunks = chunks
 
         tokenized = [
             tokenize(chunk.content)

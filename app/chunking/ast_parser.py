@@ -7,7 +7,16 @@ class MarkdownSection:
         self,
         level,
         title,
-        parent_path=None
+        parent_path=None,
+
+        # document metadata
+        doc_id=None,
+        source=None,
+        source_file=None,
+        root_title=None,
+        updated_at=None,
+        repository=None,
+        branch=None
     ):
 
         self.level = level
@@ -20,10 +29,27 @@ class MarkdownSection:
 
         self.children = []
 
+        # document metadata
+        self.doc_id = doc_id
+
+        self.source = source
+
+        self.source_file = source_file
+
+        self.root_title = root_title
+
+        self.updated_at = updated_at
+
+        self.repository = repository
+
+        self.branch = branch
+
     @property
     def path(self):
 
-        return self.parent_path + [self.title]
+        return self.parent_path + [
+            self.title
+        ]
 
 
 class MarkdownASTParser:
@@ -102,3 +128,42 @@ class MarkdownASTParser:
             i += 1
 
         return root
+
+    def attach_document_metadata(
+            self,
+            node,
+            *,
+            doc_id,
+            source,
+            source_file,
+            root_title,
+            updated_at,
+            repository=None,
+            branch=None
+    ):
+
+        node.doc_id = doc_id
+
+        node.source = source
+
+        node.source_file = source_file
+
+        node.root_title = root_title
+
+        node.updated_at = updated_at
+
+        node.repository = repository
+
+        node.branch = branch
+
+        for child in node.children:
+            self.attach_document_metadata(
+                child,
+                doc_id=doc_id,
+                source=source,
+                source_file=source_file,
+                root_title=root_title,
+                updated_at=updated_at,
+                repository=repository,
+                branch=branch
+            )
