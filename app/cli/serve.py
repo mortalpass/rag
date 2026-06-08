@@ -1,17 +1,14 @@
 # app/cli/serve.py
-
-from app.pipelines.retrieval_pipeline import (
-    RetrievalPipeline
-)
-
 from app.evaluation.retrieval_eval import (
     RetrievalEvaluator
 )
+from app.core.container import Container
 
 
 def main():
-
-    pipeline = RetrievalPipeline()
+    pipeline = (
+        Container.get_retrieval_pipeline()
+    )
 
     print("\nRAG Ready\n")
 

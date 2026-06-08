@@ -2,6 +2,7 @@
 from app.models.model_manager import ModelManager
 from sentence_transformers import CrossEncoder
 
+
 class BGEReranker:
 
     def __init__(self):

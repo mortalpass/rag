@@ -1,151 +1,152 @@
-import os
+import datetime
+
 from hashlib import md5
 from pathlib import Path
 
-from app.chunking.ast_parser import (
-    MarkdownASTParser
-)
+from app.chunking.ast_parser import MarkdownASTParser
+from app.chunking.semantic_chunker import SemanticChunker
 
-from app.chunking.semantic_chunker import (
-    SemanticChunker
-)
-
-from app.embedding.providers.factory import (
-    EmbeddingFactory
-)
-
-from app.retrieval.bm25.bm25_index import (
-    BM25Index
-)
-
-from app.vectorstores.milvus_store import (
-    MilvusStore
-)
-
-from app.config.settings import (
-    Settings
-)
+from app.retrieval.bm25.bm25_index import BM25Index
+from app.storage.document_record import DocumentRecord
+from app.storage.document_registry import DocumentRegistry
 
 
 class IngestionPipeline:
 
-    def __init__(self):
+    def __init__(
+        self,
+        embedding_provider,
+        vector_store,
+        bm25_index: BM25Index,
+        document_registry: DocumentRegistry
+    ):
+
+        self.embedding_provider = embedding_provider
+        self.vector_store = vector_store
+        self.bm25_index = bm25_index
+        self.document_registry = document_registry
 
         self.parser = MarkdownASTParser()
-
-        self.embedding_provider = (
-            EmbeddingFactory.create(
-                Settings.EMBEDDING_PROVIDER
-            )
-        )
 
         self.chunker = SemanticChunker(
             self.embedding_provider
         )
 
-        self.vector_store = MilvusStore(
-            db_path="./milvus.db",
-            collection_name="rag_chunks",
-            dim=384
-        )
+    # =========================
+    # Document Load
+    # =========================
 
-        self.vector_store.create_collection()
-
-    def parse_and_chunk(
-        self,
-        file_path: str
-    ):
-
-        markdown_text = Path(
-            file_path
-        ).read_text(
-            encoding="utf-8"
-        )
-
-        root = self.parser.parse(
-            markdown_text
-        )
+    def load_document(self, file_path: str):
 
         path = Path(file_path)
 
-        source_file = str(
-            path.resolve()
+        markdown_text = path.read_text(
+            encoding="utf-8"
         )
+
+        source_file = str(path.resolve())
 
         doc_id = md5(
             source_file.encode("utf-8")
         ).hexdigest()
 
-        updated_at = str(
-            path.stat().st_mtime
+        content_hash = md5(
+            markdown_text.encode("utf-8")
+        ).hexdigest()
+
+        updated_at = str(path.stat().st_mtime)
+
+        return {
+            "path": path,
+            "markdown_text": markdown_text,
+            "source_file": source_file,
+            "doc_id": doc_id,
+            "content_hash": content_hash,
+            "updated_at": updated_at
+        }
+
+    # =========================
+    # Change Detection
+    # =========================
+
+    def should_skip(self, doc_id: str, content_hash: str) -> bool:
+
+        record = self.document_registry.get(doc_id)
+
+        if record is None:
+            return False
+
+        return record.content_hash == content_hash
+
+    # =========================
+    # Delete Old Index
+    # =========================
+
+    def remove_document_chunks(self, doc_id: str):
+
+        chunk_ids = self.document_registry.get_chunk_ids(doc_id)
+
+        if chunk_ids:
+            self.vector_store.delete(chunk_ids)
+
+        self.bm25_index.delete_by_doc_id(doc_id)
+
+    # =========================
+    # Parse + Chunk
+    # =========================
+
+    def parse_and_chunk(self, doc_ctx):
+
+        root = self.parser.parse(
+            doc_ctx["markdown_text"]
         )
 
         self.parser.attach_document_metadata(
             root,
-
-            doc_id=doc_id,
-
-            source=path.name,
-
-            source_file=source_file,
-
-            root_title=path.stem,
-
-            updated_at=updated_at
+            doc_id=doc_ctx["doc_id"],
+            source=doc_ctx["path"].name,
+            source_file=doc_ctx["source_file"],
+            root_title=doc_ctx["path"].stem,
+            updated_at=doc_ctx["updated_at"]
         )
 
         chunks = []
 
         for child in root.children:
-
             chunks.extend(
-                self.chunker.chunk_section(
-                    child
-                )
+                self.chunker.chunk_section(child)
             )
 
         return chunks
 
-    def ingest_chunks(
-        self,
-        chunks
-    ):
+    # =========================
+    # Vector Store Write
+    # =========================
+
+    def ingest_chunks(self, chunks):
 
         if not chunks:
             return
 
-        texts = [
-            chunk.content
-            for chunk in chunks
-        ]
+        texts = [c.content for c in chunks]
 
-        vectors = (
-            self.embedding_provider
-            .embed_texts(texts)
-        )
+        vectors = self.embedding_provider.embed_texts(texts)
 
         ids = []
-
         payloads = []
 
-        for chunk in chunks:
+        for c in chunks:
 
-            ids.append(
-                chunk.chunk_id
-            )
+            ids.append(c.chunk_id)
 
-            payloads.append(
-                {
-                    "chunk_id": chunk.chunk_id,
-                    "content": chunk.content,
-                    "title": chunk.title,
-                    "path": chunk.path,
-                    "chunk_type": chunk.chunk_type,
-
-                    # flatten metadata
-                    **chunk.metadata.model_dump()
-                }
-            )
+            payloads.append({
+                "chunk_id": c.chunk_id,
+                "content": c.content,
+                "title": c.title,
+                "path": c.path,
+                "chunk_type": c.chunk_type,
+                **c.metadata.model_dump()
+            })
 
         self.vector_store.upsert(
             ids=ids,
@@ -153,141 +154,105 @@ class IngestionPipeline:
             payloads=payloads
         )
 
-        print(
-            f"Ingested {len(chunks)} chunks"
+    # =========================
+    # Registry Update
+    # =========================
+
+    def save_document_record(self, doc_ctx, chunks):
+
+        doc_id = doc_ctx["doc_id"]
+
+        old = self.document_registry.get(doc_id)
+
+        now = datetime.datetime.utcnow().isoformat()
+
+        version = old.version + 1 if old else 1
+        created_at = old.created_at if old else now
+
+        record = DocumentRecord(
+            doc_id=doc_id,
+            source_file=doc_ctx["source_file"],
+            title=doc_ctx["path"].stem,
+            content_hash=doc_ctx["content_hash"],
+            chunk_count=len(chunks),
+            version=version,
+            created_at=created_at,
+            updated_at=now
         )
 
-    def ingest_markdown(
-        self,
-        file_path: str
-    ):
+        self.document_registry.upsert(record)
 
-        chunks = self.parse_and_chunk(
-            file_path
+        self.document_registry.upsert_chunk_mapping(
+            doc_id,
+            [c.chunk_id for c in chunks]
         )
 
-        self.ingest_chunks(
-            chunks
-        )
+    # =========================
+    # Single File Ingestion
+    # =========================
 
-        bm25_index = BM25Index()
+    def ingest_markdown(self, file_path: str):
 
-        if os.path.exists(
-            bm25_index.path
-        ):
-            bm25_index.load()
+        doc_ctx = self.load_document(file_path)
 
-            bm25_index.build(
-                chunks,
-                incremental=True
-            )
+        doc_id = doc_ctx["doc_id"]
+        content_hash = doc_ctx["content_hash"]
 
-        else:
+        # ===== skip unchanged =====
+        if self.should_skip(doc_id, content_hash):
+            print(f"[SKIP] {file_path}")
+            return []
 
-            bm25_index.build(
-                chunks,
-                incremental=False
-            )
+        # ===== remove old index if exists =====
+        if self.document_registry.exists(doc_id):
+            self.remove_document_chunks(doc_id)
 
-        bm25_index.save()
+        # ===== parse + chunk =====
+        chunks = self.parse_and_chunk(doc_ctx)
+
+        # ===== vector store =====
+        self.ingest_chunks(chunks)
+
+        # ===== bm25 =====
+        self.bm25_index.build(chunks, incremental=True)
+        self.bm25_index.save()
+
+        # ===== registry =====
+        self.save_document_record(doc_ctx, chunks)
+
+        print(f"[INGEST] {file_path} -> {len(chunks)} chunks")
 
         return chunks
+
+    # =========================
+    # Directory Ingestion
+    # =========================
 
     def ingest_directory(
         self,
         directory: str,
         recursive: bool = True
     ):
-        """
-        Ingest all markdown files under a directory.
-        """
 
         root = Path(directory)
 
         if not root.exists():
-            raise FileNotFoundError(
-                f"Directory not found: {directory}"
-            )
+            raise FileNotFoundError(directory)
 
         pattern = "**/*.md" if recursive else "*.md"
 
-        md_files = sorted(
-            root.glob(pattern)
-        )
-
-        if not md_files:
-            print(
-                f"No markdown files found in {directory}"
-            )
-            return []
-
-        print(
-            f"Found {len(md_files)} markdown files"
-        )
-
-        bm25_index = BM25Index()
-
-        if os.path.exists(
-            bm25_index.path
-        ):
-            bm25_index.load()
-            incremental = True
-        else:
-            incremental = False
+        files = sorted(root.glob(pattern))
 
         all_chunks = []
 
-        for md_file in md_files:
-
-            print(
-                f"Processing: {md_file}"
-            )
+        for f in files:
 
             try:
-
-                chunks = self.parse_and_chunk(
-                    str(md_file)
-                )
-
-                self.ingest_chunks(
-                    chunks
-                )
-
-                bm25_index.build(
-                    chunks,
-                    incremental=incremental
-                )
-
-                incremental = True
-
-                all_chunks.extend(
-                    chunks
-                )
-
-                print(
-                    f"✓ {md_file.name}: {len(chunks)} chunks"
-                )
+                chunks = self.ingest_markdown(str(f))
+                all_chunks.extend(chunks)
 
             except Exception as e:
-
-                print(
-                    f"✗ Failed: {md_file}"
-                )
-
+                print(f"[FAILED] {f}")
                 print(e)
-
-        bm25_index.save()
-
-        print(
-            f"\nFinished"
-        )
-
-        print(
-            f"Files: {len(md_files)}"
-        )
-
-        print(
-            f"Chunks: {len(all_chunks)}"
-        )
 
         return all_chunks

@@ -139,6 +139,27 @@ class MilvusStore(BaseVectorStore):
             data=data
         )
 
+    def delete(
+            self,
+            ids: list[str]
+    ):
+
+        if not ids:
+            return
+
+        expr = (
+                "id in ["
+                + ",".join(
+            [f'"{i}"' for i in ids]
+        )
+                + "]"
+        )
+
+        self.client.delete(
+            collection_name=self.collection_name,
+            filter=expr
+        )
+
     def search(
         self,
         query_vector,

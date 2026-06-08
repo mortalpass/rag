@@ -58,3 +58,28 @@ class BM25Index:
 
         self.bm25 = data["bm25"]
         self.chunks = data["chunks"]
+
+    def delete_by_doc_id(
+            self,
+            doc_id: str
+    ):
+
+        self.chunks = [
+
+            c
+
+            for c in self.chunks
+
+            if c.metadata.doc_id != doc_id
+        ]
+
+        tokenized = [
+
+            tokenize(c.content)
+
+            for c in self.chunks
+        ]
+
+        self.bm25 = BM25Okapi(
+            tokenized
+        )

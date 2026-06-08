@@ -1,6 +1,4 @@
-from app.pipelines.ingestion_pipeline import (
-    IngestionPipeline
-)
+from app.core.container import Container
 
 from app.storage.chunk_exporter import (
     ChunkExporter
@@ -8,15 +6,13 @@ from app.storage.chunk_exporter import (
 
 
 def main():
-    pipeline = IngestionPipeline()
 
-    # chunks = pipeline.ingest_markdown(
-    #     "/Users/sw-team/Desktop/rag/"
-    #     "data/raw/test.md"
-    # )
+    pipeline = (
+        Container.get_ingestion_pipeline()
+    )
+
     chunks = pipeline.ingest_directory(
-        "/Users/sw-team/Desktop/rag/"
-        "data/raw"
+        "/Users/sw-team/Desktop/rag/data/raw"
     )
 
     ChunkExporter.export_to_json(
@@ -25,6 +21,10 @@ def main():
             "/Users/sw-team/Desktop/rag/"
             "data/processed/chunks.json"
         )
+    )
+
+    print(
+        f"Ingested {len(chunks)} chunks"
     )
 
 
